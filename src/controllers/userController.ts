@@ -11,17 +11,36 @@ export const createUser = async (
   next: NextFunction,
 ) => {
   try {
-    const { id, email, password, document_urls, appointments_callsummary } =
-      req.body;
-    console.log("Creating user with data:", {
+    const {
       id,
       email,
       password,
-      document_urls,
-      appointments_callsummary,
+      document_urls = [],
+      appointments_callsummary = [],
+    } = req.body;
+
+    if (!email || !password) {
+      return res
+        .status(400)
+        .json({ message: "Email and password are required" });
+    }
+
+    // Auto-generate a numeric id if not provided
+    let numericId: number;
+    if (typeof id === "number") {
+      numericId = id;
+    } else {
+      const lastUser = await User.findOne().sort({ id: -1 }).lean();
+      numericId = lastUser ? lastUser.id + 1 : 1;
+    }
+
+    console.log("Creating user with data:", {
+      id: numericId,
+      email,
     });
+
     const user = await User.create({
-      id,
+      id: numericId,
       email,
       password,
       document_urls,
@@ -29,6 +48,12 @@ export const createUser = async (
     });
     return res.status(201).json(user);
   } catch (error) {
+    // Handle duplicate key errors more gracefully
+    if ((error as any).code === 11000) {
+      return res
+        .status(409)
+        .json({ message: "User with this email or id already exists" });
+    }
     next(error);
   }
 };
@@ -144,17 +169,19 @@ export const addUserDocument = async (
       Number(id),
     );
 
-    // after successfull upload add the document to a queue for async
+    // After successful upload, process the document content through Textract
+    // and ingest it into the RAG pipeline with rich metadata.
     const content = await detectTextFromS3(s3BucketName, objectKey);
-    //console.log(content);
     const metadata = {
       userId: Number(id),
       description: description,
       name: name,
+      url: s3Url,
+      objectKey,
     };
 
     const ragInstance = getRagPipelineInstance();
-    ragInstance.ingestDocument(content, metadata);
+    await ragInstance.ingestDocument(content, metadata);
 
     const documentName = name || req.file.originalname;
 
@@ -394,6 +421,113 @@ export const deleteUserAppointment = async (
     await user.save();
 
     return res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getUserGoldenRecord = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findOne({ id: Number(id) });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const latestAppt =
+      user.appointments_callsummary[
+        user.appointments_callsummary.length - 1
+      ] ?? null;
+
+    const summary =
+      latestAppt?.history_summary ||
+      latestAppt?.call_summary ||
+      "No synthesized history available yet.";
+
+    const recentEvents = user.appointments_callsummary
+      .slice(-5)
+      .map((a) => ({
+        date: a.date,
+        description: a.call_summary,
+      }));
+
+    const documentTypes = Array.from(
+      new Set(user.document_urls.map((d) => d.type || "Other")),
+    );
+
+    const result = {
+      patientName: user.email || "Patient",
+      summary,
+      riskFlags: [] as string[],
+      medications: [] as string[],
+      recentEvents,
+      allergies: [] as string[],
+      documentTypes,
+    };
+
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getUserMedicalHistory = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findOne({ id: Number(id) });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Conditions: derive simple condition-like entries from appointments
+    const conditions = user.appointments_callsummary.map((appt) => ({
+      name: appt.call_summary.slice(0, 80) || "Consultation",
+      since: appt.date ? appt.date.getFullYear().toString() : "",
+      status: "monitoring",
+      doctor: appt.doctorOrClinic,
+    }));
+
+    // Medications: placeholder based on prescriptions documents (if any)
+    const medications = user.document_urls
+      .filter((d) => d.type?.toLowerCase() === "prescription")
+      .map((d) => ({
+        name: d.name,
+        freq: d.description || "See prescription",
+        start: d.createdAt ? d.createdAt.toDateString() : "",
+        refill: "",
+      }));
+
+    // Timeline: combine documents and appointments into a single chronological view
+    const timeline = [
+      ...user.document_urls.map((d) => ({
+        date: d.createdAt,
+        event: `${d.type || "Document"} — ${d.name}`,
+        type: "lab" as const,
+      })),
+      ...user.appointments_callsummary.map((a) => ({
+        date: a.date,
+        event: a.call_summary,
+        type: "visit" as const,
+      })),
+    ].sort((a, b) => {
+      const da = a.date ? new Date(a.date).getTime() : 0;
+      const db = b.date ? new Date(b.date).getTime() : 0;
+      return db - da;
+    });
+
+    return res.status(200).json({
+      conditions,
+      medications,
+      timeline,
+    });
   } catch (error) {
     next(error);
   }

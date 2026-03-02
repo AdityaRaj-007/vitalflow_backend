@@ -15,6 +15,8 @@ import {
   updateUser,
   updateUserAppointment,
   updateUserDocument,
+  getUserGoldenRecord,
+  getUserMedicalHistory,
 } from "../controllers/userController.js";
 import { uploadDocumentMiddleware } from "../middlewares/upload.js";
 
@@ -40,6 +42,12 @@ userRouter.post("/users/:id/appointments", addUserAppointment);
 userRouter.get("/users/:id/appointments/:appointmentId", getUserAppointment);
 userRouter.put("/users/:id/appointments/:appointmentId", updateUserAppointment);
 userRouter.delete("/users/:id/appointments/:appointmentId", deleteUserAppointment);
+
+// Golden record view
+userRouter.get("/users/:id/golden-record", getUserGoldenRecord);
+
+// Aggregated medical history view
+userRouter.get("/users/:id/history", getUserMedicalHistory);
 
 export default userRouter;
 

@@ -30,7 +30,11 @@ export function clearSession(sessionId: string) {
   sessions.delete(sessionId);
 }
 
-export async function LLMResponse(inputText: string, sessionId: string) {
+export async function LLMResponse(
+  inputText: string,
+  sessionId: string,
+  ragContext?: string,
+) {
   const history = getHistory(sessionId);
-  return GeminiResponse(inputText, SYSTEM_PROMPT, history);
+  return GeminiResponse(inputText, SYSTEM_PROMPT, history, ragContext);
 }
