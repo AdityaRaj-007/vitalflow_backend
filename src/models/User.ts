@@ -16,6 +16,9 @@ export interface AppointmentCallSummary {
   doctorOrClinic: string;
   location: string;
   call_summary: string;
+  // Optional enriched context for doctor & patient views
+  related_documents?: string[];
+  history_summary?: string;
 }
 
 export interface UserDocument extends Document {
@@ -41,6 +44,8 @@ const AppointmentCallSummarySchema = new Schema<AppointmentCallSummary>({
   doctorOrClinic: { type: String, required: true },
   location: { type: String, required: true },
   call_summary: { type: String, required: true },
+  related_documents: { type: [String], default: [] },
+  history_summary: { type: String },
 });
 
 const UserSchema = new Schema<UserDocument>(

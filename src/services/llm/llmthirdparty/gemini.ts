@@ -48,23 +48,55 @@ export interface GeminiResult {
     history: ConversationHistory;
 }
 
-export async function GeminiResponse(inputText: string, SYSTEM_PROMPT: string, history: ConversationHistory): Promise<GeminiResult> {
+export async function GeminiResponse(
+    inputText: string,
+    SYSTEM_PROMPT: string,
+    history: ConversationHistory,
+    ragContext?: string,
+): Promise<GeminiResult> {
     try {
-        console.log("Input text:", inputText);
         const ai = GeminiClient.getInstance();
 
-        history.push({ role: "user", parts: [{ text: inputText }] });
+        const languageGuard = `
+You MUST ALWAYS respond in the same language and script as the user's latest message.
+- If the latest user message is in English, reply ONLY in English.
+- If it is in Hinglish (Hindi words in Latin letters), reply in Hinglish.
+- If it is in Tamil/Telugu/Kannada/Malayalam script, reply in that script.
+- Never default to Tamil or any other language unless the user's latest message clearly uses that language.
+`.trim();
+
+        const effectiveSystemPrompt = `${languageGuard}\n\n${SYSTEM_PROMPT}`;
+
+        const contextPrefix = ragContext
+            ? `CONTEXT FROM PATIENT MEDICAL RECORDS:\n${ragContext}\n\nPATIENT MESSAGE:\n${inputText}`
+            : inputText;
+
+        const preview = contextPrefix.length > 200
+            ? contextPrefix.slice(0, 200) + "..."
+            : contextPrefix;
+        console.log("Input text (with context preview):", preview);
+
+        // Build full conversational context for the model:
+        // - prior turns from history
+        // - latest user turn with RAG context injected
+        const fullContents: ConversationHistory = [
+            ...history,
+            { role: "user", parts: [{ text: contextPrefix }] },
+        ];
 
         const response = await ai.models.generateContent({
             model: process.env.GEMINI_MODEL || "",
-            contents: inputText,
-            config: { systemInstruction: SYSTEM_PROMPT },
+            contents: fullContents,
+            config: { systemInstruction: effectiveSystemPrompt },
         });
 
         console.log("Gemini response:", response.text);
         const rawText = response.text ?? "";
         const bookingData = extractBookingData(rawText);
         const reply = stripBookingData(rawText);
+        // Store clean user + model turns in history (no raw RAG context),
+        // so future turns see the full conversation but UI stays simple.
+        history.push({ role: "user", parts: [{ text: inputText }] });
         history.push({ role: "model", parts: [{ text: reply }] });
 
         return { reply, bookingData, history };
