@@ -21,9 +21,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ${{ secrets.EC2_APP_DIR }}
-            git fetch origin
-            git checkout dev
-            git pull origin dev
+            git pull
             npm install
             npm run build
             pm2 restart vitalflow-backend
