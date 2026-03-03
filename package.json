@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc && cpy \"src/**/*.md\" dist --parents",
+    "build": "rm -rf dist && tsc && cpy \"src/**/*.md\" dist --parents",
     "start": "node dist/index.js",
     "dev": "nodemon --watch src/**/*.ts --exec node --loader ts-node/esm src/index.ts"
   },
