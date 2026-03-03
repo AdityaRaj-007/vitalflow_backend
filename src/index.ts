@@ -34,7 +34,7 @@ app.use(cors());
 app.use("/api", router);
 
 app.get("/test", (req, res) => {
-  res.send("Welcome to vitalflow server");
+  res.send("Welcome to vitalflow server user");
 });
 
 const startServer = async () => {
