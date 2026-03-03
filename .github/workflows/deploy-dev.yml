@@ -24,4 +24,4 @@ jobs:
             git pull
             npm install
             npm run build
-            pm2 restart vitalflow-backend
+            pm2 restart vitalflow-backend --update-env
