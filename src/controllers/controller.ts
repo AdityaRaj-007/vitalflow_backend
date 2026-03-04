@@ -28,24 +28,27 @@ export const getLLMResponseController = async (
     const docs = await retriever.invoke(inputText);
     const context = docs.map((d: any) => d.pageContent).join("\n\n");
 
+    // Collect URLs of relevant documents so the UI/agent
+    // can surface specific reports if requested.
+    const relatedDocuments = Array.from(
+      new Set(
+        (docs || [])
+          .map((d: any) => d.metadata?.url)
+          .filter((u: unknown): u is string => typeof u === "string"),
+      ),
+    );
+
     const llmresponse = await LLMResponse(inputText, sessionId, context);
     console.log("llm response is", llmresponse.reply);
     console.log("Chat history: ", llmresponse.history);
 
     res.locals.llmresponse = llmresponse.reply;
+    res.locals.relatedDocuments = relatedDocuments;
     AddChatToHistory(llmresponse.history as ChatMessage[]);
 
     // If the model decided to book an appointment, persist it
     const bookingData = (llmresponse as any).bookingData;
     if (bookingData) {
-      const relatedDocuments = Array.from(
-        new Set(
-          (docs || [])
-            .map((d: any) => d.metadata?.url)
-            .filter((u: unknown): u is string => typeof u === "string"),
-        ),
-      );
-
       // Use the RAG clinical synthesis as the structured history summary
       const historySummary = await ragInstance.ragChain().invoke(inputText);
 
@@ -200,12 +203,17 @@ export const convertTextToSpeechController = async (
 ) => {
   const LLMResponse = res.locals.llmresponse;
   const language_code = res.locals.language_code;
+  const relatedDocuments = (res.locals.relatedDocuments ?? []) as string[];
   if (!LLMResponse) return res.status(400).json({ error: "No llm response." });
 
   try {
     const audioResponse = await convertTextToSpeech(LLMResponse, language_code);
     const history = GetChatHistory();
-    return res.status(200).json({ audio: audioResponse[0], history });
+    return res.status(200).json({
+      audio: audioResponse[0],
+      history,
+      documents: relatedDocuments,
+    });
   } catch (err) {
     next(err);
   }
