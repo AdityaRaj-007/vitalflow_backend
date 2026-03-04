@@ -129,7 +129,10 @@ export const getLLMResponseController = async (
         const user = await User.findOne({ id: Number(userId) });
         if (user) {
           user.appointments_callsummary.push({
-            date: parsedDate,
+            // date: when we created this booking in our system
+            date: new Date(),
+            // appointmentDateTime: when the patient requested the appointment
+            appointmentDateTime: parsedDate,
             doctorOrClinic,
             location,
             call_summary: callSummary,

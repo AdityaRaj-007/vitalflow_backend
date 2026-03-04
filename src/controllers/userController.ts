@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { User } from "../models/User.js";
+import { User, type AppointmentCallSummary } from "../models/User.js";
 import { uploadUserDocumentToS3 } from "../utils/s3Upload.js";
 import { detectTextFromS3 } from "../utils/awsTextract.js";
 import { s3BucketName } from "../config/s3.js";
@@ -305,19 +305,29 @@ export const addUserAppointment = async (
 ) => {
   try {
     const { id } = req.params;
-    const { date, doctorOrClinic, location, call_summary } = req.body;
+    const {
+      date,
+      appointmentDateTime,
+      doctorOrClinic,
+      location,
+      call_summary,
+    } = req.body;
 
     const user = await User.findOne({ id: Number(id) });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    user.appointments_callsummary.push({
-      date,
+    const newAppointment: AppointmentCallSummary = {
+      date: date ? new Date(date) : new Date(),
       doctorOrClinic,
       location,
       call_summary,
-    });
+    };
+    if (appointmentDateTime) {
+      newAppointment.appointmentDateTime = new Date(appointmentDateTime);
+    }
+    user.appointments_callsummary.push(newAppointment);
     await user.save();
 
     const createdAppointment =
