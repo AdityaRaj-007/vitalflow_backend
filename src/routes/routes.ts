@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   convertSpeechToTextController,
   convertTextToSpeechController,
+  generateAccessToken,
   getChatHistory,
   getLLMResponseController,
 } from "../controllers/controller.js";
@@ -18,9 +19,10 @@ router.post(
   convertTextToSpeechController,
 );
 
+router.post("/get-token/:userId", generateAccessToken);
+
 router.get("/getChatHistory", getChatHistory);
 
 router.use("/", userRouter);
 
 export default router;
-

@@ -8,6 +8,7 @@ import { AddChatToHistory, GetChatHistory } from "../utils/chatHistory.js";
 import type { ChatMessage } from "../types/types.js";
 import { getRagPipelineInstance } from "../services/rag/ragpipeline.js";
 import { User } from "../models/User.js";
+import { AccessToken } from "livekit-server-sdk";
 
 export const getLLMResponseController = async (
   req: Request,
@@ -215,4 +216,45 @@ export const getChatHistory = (
 ) => {
   const chatHistory = GetChatHistory();
   return res.status(200).json({ history: chatHistory });
+};
+
+export const generateAccessToken = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  const { userId } = req.params;
+  const roomName =
+    req.body.roomName || `voice-room-${Math.floor(Math.random() * 10000)}`;
+  const participantIdentity = `user-${userId}`;
+
+  const at = new AccessToken(
+    process.env.LIVEKIT_API_KEY,
+    process.env.LIVEKIT_API_SECRET,
+    {
+      identity: participantIdentity,
+      name: "Human Caller",
+      ttl: "15m",
+    },
+  );
+
+  at.addGrant({
+    roomJoin: true,
+    room: roomName,
+    canPublish: true,
+    canSubscribe: true,
+  });
+
+  try {
+    const token = await at.toJwt();
+
+    return res.status(200).json({
+      token: token,
+      url: process.env.LIVEKIT_URL,
+      roomName: roomName,
+    });
+  } catch (err) {
+    console.error("Failed to generate token: ", err);
+    return res.status(500).json({ error: "Could not generate token" });
+  }
 };
