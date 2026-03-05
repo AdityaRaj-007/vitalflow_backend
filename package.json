@@ -7,8 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "rm -rf dist && tsc && cpy \"src/**/*.md\" dist --parents",
     "start": "node dist/index.js",
-    "dev": "nodemon --watch src/**/*.ts --exec node --loader ts-node/esm src/index.ts",
     "voiceagent": "tsx src/services/voice/voiceagent/voiceagent.ts dev"
+    "dev": "nodemon --watch src --ext ts --exec tsx src/index.ts"
   },
   "keywords": [],
   "author": "",

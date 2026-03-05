@@ -13,6 +13,8 @@ export interface DocumentUrl {
 export interface AppointmentCallSummary {
   _id?: Types.ObjectId;
   date: Date;
+  // When the appointment is actually scheduled for (what the patient asked for)
+  appointmentDateTime?: Date;
   doctorOrClinic: string;
   location: string;
   call_summary: string;
@@ -40,7 +42,10 @@ const DocumentUrlSchema = new Schema<DocumentUrl>(
 );
 
 const AppointmentCallSummarySchema = new Schema<AppointmentCallSummary>({
+  // When the booking was created in our system
   date: { type: Date, required: true },
+  // When the patient actually wants the appointment (parsed from conversation)
+  appointmentDateTime: { type: Date },
   doctorOrClinic: { type: String, required: true },
   location: { type: String, required: true },
   call_summary: { type: String, required: true },
