@@ -21,12 +21,17 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ${{ secrets.EC2_APP_DIR }}
-            git pull
+
+            # Ensure working tree is clean before pulling (safe for deploy box)
+            git fetch origin dev
+            git reset --hard origin/dev
+
             npm install
             npm run build
+
             # API server: restart if it exists, otherwise start it
             pm2 restart vitalflow-backend --update-env || pm2 start dist/index.js --name vitalflow-backend
 
             # Voice agent: always-on background worker
-            # Restart on deploy if it exists; otherwise start it from built JS
-            pm2 restart vitalflow-voiceagent --update-env || pm2 start dist/services/voice/voiceagent/voiceagent.js --name vitalflow-voiceagent
+            # Restart if it exists; otherwise start via the existing npm script
+            pm2 restart vitalflow-voiceagent --update-env || pm2 start npm --name vitalflow-voiceagent -- run voiceagent
