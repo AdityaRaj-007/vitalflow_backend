@@ -136,7 +136,7 @@ export default defineAgent({
         const id = remoteParticipant.identity.split("-")[1];
         try {
           const response = await fetch(
-            `http://localhost:3000/api/users/${id}/appointments`,
+            `http://13.127.76.225/api/users/${id}/appointments`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
