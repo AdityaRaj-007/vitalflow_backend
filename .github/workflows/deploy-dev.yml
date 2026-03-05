@@ -24,4 +24,9 @@ jobs:
             git pull
             npm install
             npm run build
-            pm2 restart vitalflow-backend --update-env
+            # API server: restart if it exists, otherwise start it
+            pm2 restart vitalflow-backend --update-env || pm2 start dist/index.js --name vitalflow-backend
+
+            # Voice agent: always-on background worker
+            # Restart on deploy if it exists; otherwise start it from built JS
+            pm2 restart vitalflow-voiceagent --update-env || pm2 start dist/services/voice/voiceagent/voiceagent.js --name vitalflow-voiceagent
