@@ -292,6 +292,19 @@ export const getUserAppointments = async (
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+
+    // Backfill missing status on older appointments so they are explicitly stored
+    let changed = false;
+    user.appointments_callsummary.forEach((appt: any) => {
+      if (!appt.status) {
+        appt.status = "pending";
+        changed = true;
+      }
+    });
+    if (changed) {
+      await user.save();
+    }
+
     return res.status(200).json(user.appointments_callsummary);
   } catch (error) {
     next(error);
@@ -320,6 +333,8 @@ export const addUserAppointment = async (
 
     const newAppointment: AppointmentCallSummary = {
       date: date ? new Date(date) : new Date(),
+      // New appointments start as pending until doctor acts
+      status: "pending",
       doctorOrClinic,
       location,
       call_summary,
@@ -357,15 +372,11 @@ export const getUserAppointment = async (
       return res.status(404).json({ message: "Appointment not found" });
     }
 
-    const ragInstance = getRagPipelineInstance();
-
-    //const testDocs = await ragInstance.getRetriever().invoke("What is RAG?");
-    // console.log("Documents found by database:", testDocs.length);
-    // console.log("First document text:", testDocs[0]?.pageContent);
-    const response = await ragInstance
-      .ragChain()
-      .invoke("What does my blood report say?");
-    console.log(response);
+    // Ensure status is always present for this appointment
+    if (!appointment.status) {
+      appointment.status = "pending";
+      await user.save();
+    }
 
     return res.status(200).json(appointment);
   } catch (error) {
@@ -380,16 +391,23 @@ export const updateUserAppointment = async (
 ) => {
   try {
     const { id, appointmentId } = req.params;
-    const { date, doctorOrClinic, location, call_summary } = req.body;
+    const { date, doctorOrClinic, location, call_summary, status } = req.body;
 
     const user = await User.findOne({ id: Number(id) });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const appointment = (user.appointments_callsummary as any).id(
-      appointmentId,
-    );
+    // Try to locate the appointment by its MongoDB subdocument _id first
+    let appointment = (user.appointments_callsummary as any).id(appointmentId);
+
+    // Fallback: support numeric index ids (e.g. when the frontend used array index)
+    if (!appointment) {
+      const idx = Number(appointmentId);
+      if (!Number.isNaN(idx) && idx >= 0 && idx < user.appointments_callsummary.length) {
+        appointment = user.appointments_callsummary[idx] as any;
+      }
+    }
     if (!appointment) {
       return res.status(404).json({ message: "Appointment not found" });
     }
@@ -399,6 +417,7 @@ export const updateUserAppointment = async (
       appointment.doctorOrClinic = doctorOrClinic;
     if (location !== undefined) appointment.location = location;
     if (call_summary !== undefined) appointment.call_summary = call_summary;
+    if (status !== undefined) appointment.status = status;
 
     await user.save();
 
