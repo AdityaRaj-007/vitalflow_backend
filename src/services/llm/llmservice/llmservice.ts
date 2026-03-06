@@ -1,7 +1,11 @@
-import { GeminiResponse, type ConversationHistory } from "../llmthirdparty/gemini.js";
+// import { GeminiResponse, type ConversationHistory } from "../llmthirdparty/gemini.js";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
+import {
+  BedrockResponse,
+  type ConversationHistory,
+} from "../llmthirdparty/amazonBedrock.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -9,7 +13,7 @@ const __dirname = path.dirname(__filename);
 function loadSystemPrompt(): string {
   const raw = fs.readFileSync(
     path.resolve(__dirname, "../SYSTEM_PROMPT.md"),
-    "utf-8"
+    "utf-8",
   );
   const fenced = raw.match(/```\n([\s\S]*?)\n```/);
   return fenced ? fenced[1]?.trim() || "" : raw.trim();
@@ -36,5 +40,5 @@ export async function LLMResponse(
   ragContext?: string,
 ) {
   const history = getHistory(sessionId);
-  return GeminiResponse(inputText, SYSTEM_PROMPT, history, ragContext);
+  return BedrockResponse(inputText, SYSTEM_PROMPT, history, ragContext);
 }

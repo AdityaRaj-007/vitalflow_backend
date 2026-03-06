@@ -9,6 +9,7 @@ import type { ChatMessage } from "../types/types.js";
 import { getRagPipelineInstance } from "../services/rag/ragpipeline.js";
 import { User } from "../models/User.js";
 import { AccessToken } from "livekit-server-sdk";
+import type { ConversationHistory } from "../services/llm/llmthirdparty/amazonBedrock.js";
 
 export const getLLMResponseController = async (
   req: Request,
@@ -45,7 +46,7 @@ export const getLLMResponseController = async (
 
     res.locals.llmresponse = llmresponse.reply;
     res.locals.relatedDocuments = relatedDocuments;
-    AddChatToHistory(llmresponse.history as ChatMessage[]);
+    AddChatToHistory(llmresponse.history);
 
     // If the model decided to book an appointment, persist it
     const bookingData = (llmresponse as any).bookingData;
