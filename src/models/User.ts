@@ -15,6 +15,8 @@ export interface AppointmentCallSummary {
   date: Date;
   // When the appointment is actually scheduled for (what the patient asked for)
   appointmentDateTime?: Date;
+  // Doctor approval status for this appointment
+  status?: "pending" | "confirmed" | "rejected";
   doctorOrClinic: string;
   location: string;
   call_summary: string;
@@ -46,6 +48,11 @@ const AppointmentCallSummarySchema = new Schema<AppointmentCallSummary>({
   date: { type: Date, required: true },
   // When the patient actually wants the appointment (parsed from conversation)
   appointmentDateTime: { type: Date },
+  status: {
+    type: String,
+    enum: ["pending", "confirmed", "rejected"],
+    default: "pending",
+  },
   doctorOrClinic: { type: String, required: true },
   location: { type: String, required: true },
   call_summary: { type: String, required: true },

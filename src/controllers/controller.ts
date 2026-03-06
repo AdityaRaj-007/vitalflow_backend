@@ -137,6 +137,8 @@ export const getLLMResponseController = async (
             date: new Date(),
             // appointmentDateTime: when the patient requested the appointment
             appointmentDateTime: parsedDate,
+            // Default to pending until doctor approves/rejects
+            status: "pending",
             doctorOrClinic,
             location,
             call_summary: callSummary,
