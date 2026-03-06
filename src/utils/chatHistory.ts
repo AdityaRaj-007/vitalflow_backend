@@ -1,7 +1,8 @@
 import type { ChatMessage } from "../types/types.js";
+import type { ConversationHistory } from "../services/llm/llmthirdparty/amazonBedrock.js";
 class ChatHistory {
   public static instance: ChatHistory;
-  private chatHistory: ChatMessage[] = [];
+  private chatHistory: ConversationHistory = [];
 
   private constructor() {}
 
@@ -14,7 +15,7 @@ class ChatHistory {
     return ChatHistory.instance;
   }
 
-  public addHistory(chats: ChatMessage[]) {
+  public addHistory(chats: ConversationHistory) {
     this.chatHistory = [...chats];
   }
 
@@ -24,7 +25,7 @@ class ChatHistory {
   }
 }
 
-export function AddChatToHistory(chatReply: ChatMessage[]) {
+export function AddChatToHistory(chatReply: ConversationHistory) {
   const chat = ChatHistory.getInstance();
 
   chat?.addHistory(chatReply);
