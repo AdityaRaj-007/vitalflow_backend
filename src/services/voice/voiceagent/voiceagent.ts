@@ -77,7 +77,7 @@ export default defineAgent({
         time: z
           .string()
           .describe(
-            "The precise ISO 8601 timestamp for the requested appointment time (e.g., 2026-03-05T18:00:00+05:30). Calculate this based on the current system date."
+            "The precise ISO 8601 timestamp for the requested appointment time (e.g., 2026-03-05T18:00:00-05:30). Calculate this based on the current system date in UTC assuming that the time will be in IST in input."
           ),
       }),
 
@@ -123,15 +123,25 @@ export default defineAgent({
         }
 
         const requestedTime = new Date(time);
+        const SLOT_MATCH_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
 
         const doctorsWithAvailableSlot = matchedBySpeciality.filter((d: any) => {
-          const slots = (d.slots || []) as any[];
+          // const slots = (d.slots || []) as any[];
           // return slots.some((slot) => {
-          //   if (slot.status !== "AVAILABLE" || !slot.startTime) return false;
+          //   // if (slot.status !== "AVAILABLE" || !slot.startTime) return false;
           //   const slotTime = new Date(slot.startTime);
-          //   return slotTime.getTime() === requestedTime.getTime();
+          //   const diff = Math.abs(slotTime.getTime() - requestedTime.getTime());
+          //   return diff < SLOT_MATCH_WINDOW_MS;
           // });
-          return slots
+          const slots = (d.slots || []) as any[];
+
+          const hasConflict = slots.some((slot) => {
+            const slotTime = new Date(slot.startTime);
+            const diff = Math.abs(slotTime.getTime() - requestedTime.getTime());
+            return diff < SLOT_MATCH_WINDOW_MS;
+          });
+
+          return !hasConflict;
         });
 
         if (doctorsWithAvailableSlot.length === 0) {
