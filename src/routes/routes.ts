@@ -8,6 +8,7 @@ import {
 } from "../controllers/controller.js";
 import { uploadMiddleware } from "../middlewares/upload.js";
 import userRouter from "./userRoutes.js";
+import doctorRouter from "./doctorRoutes.js";
 
 const router = Router();
 
@@ -24,5 +25,6 @@ router.post("/get-token/:userId", generateAccessToken);
 router.get("/getChatHistory", getChatHistory);
 
 router.use("/", userRouter);
+router.use("/", doctorRouter);
 
 export default router;

@@ -23,6 +23,9 @@ export interface AppointmentCallSummary {
   // Optional enriched context for doctor & patient views
   related_documents?: string[];
   history_summary?: string;
+  // Link to doctor's slot so status stays in sync when doctor approves/rejects
+  doctorId?: Types.ObjectId;
+  slotId?: Types.ObjectId;
 }
 
 export interface UserDocument extends Document {
@@ -58,6 +61,8 @@ const AppointmentCallSummarySchema = new Schema<AppointmentCallSummary>({
   call_summary: { type: String, required: true },
   related_documents: { type: [String], default: [] },
   history_summary: { type: String },
+  doctorId: { type: Schema.Types.ObjectId, ref: "Doctor" },
+  slotId: { type: Schema.Types.ObjectId },
 });
 
 const UserSchema = new Schema<UserDocument>(

@@ -10,6 +10,7 @@ import { getRagPipelineInstance } from "../services/rag/ragpipeline.js";
 import { User } from "../models/User.js";
 import { AccessToken } from "livekit-server-sdk";
 import type { ConversationHistory } from "../services/llm/llmthirdparty/amazonBedrock.js";
+import { linkAppointmentToDoctorSlot } from "../services/appointment/appointmentLinkService.js";
 
 export const getLLMResponseController = async (
   req: Request,
@@ -25,9 +26,8 @@ export const getLLMResponseController = async (
     console.log("input text is", inputText, "for user", userId);
 
     const ragInstance = getRagPipelineInstance();
-    // Retrieve relevant documents for this query
-    const retriever = ragInstance.getRetriever();
-    const docs = await retriever.invoke(inputText);
+    // Retrieve relevant documents for this query, filtered by userId
+    const docs = await ragInstance.retrieveForUser(inputText, userId);
     const context = docs.map((d: any) => d.pageContent).join("\n\n");
 
     // Collect URLs of relevant documents so the UI/agent
@@ -52,7 +52,7 @@ export const getLLMResponseController = async (
     const bookingData = (llmresponse as any).bookingData;
     if (bookingData) {
       // Use the RAG clinical synthesis as the structured history summary
-      const historySummary = await ragInstance.ragChain().invoke(inputText);
+      const historySummary = await ragInstance.getClinicalSynthesisForUser(inputText, userId);
 
       const clinical = (bookingData.clinical_summary ?? {}) as {
         chief_complaint?: string;
@@ -147,6 +147,25 @@ export const getLLMResponseController = async (
             history_summary: historySummary,
           });
           await user.save();
+          const newAppointment =
+            user.appointments_callsummary[user.appointments_callsummary.length - 1];
+          const appointmentObjId = (newAppointment as any)._id;
+
+          if (appointmentObjId) {
+            const linkResult = await linkAppointmentToDoctorSlot({
+              doctorNameOrId: doctorOrClinic,
+              appointmentDateTime: parsedDate!,
+              patientId: Number(userId),
+              patientName: user.email || "Patient",
+              callSummary,
+              userAppointmentId: appointmentObjId,
+            });
+            if (linkResult) {
+              (newAppointment as any).doctorId = linkResult.doctorId;
+              (newAppointment as any).slotId = linkResult.slotId;
+              await user.save();
+            }
+          }
           console.log("Appointment created from booking data for user", userId);
         } else {
           console.warn("User not found for booking data, id:", userId);
