@@ -68,24 +68,89 @@ class RagPipeline {
     console.log(`Successfully ingested ${docs.length} chunks into MongoDB.`);
   };
 
-  public getRetriever = () => {
+  /**
+   * Get a retriever, optionally filtered by userId so only that user's documents are returned.
+   * @param userId - If provided, only documents with metadata.userId matching this value are retrieved.
+   */
+  public getRetriever = (userId?: number) => {
     if (!this.vectorStore) {
       throw new Error("You must call initialize() first.");
     }
 
+    const filter = userId != null ? { preFilter: { userId } } : undefined;
+    const baseRetriever = this.vectorStore.asRetriever({
+      searchType: "mmr",
+      searchKwargs: {
+        fetchK: 5,
+        lambda: 0.5,
+        ...(filter && { filter }),
+      },
+    });
+
     return MultiQueryRetriever.fromLLM({
       llm: this.llm,
-      retriever: this.vectorStore.asRetriever({
-        searchType: "mmr",
-        searchKwargs: {
-          fetchK: 5,
-          lambda: 0.5,
-        },
-      }),
+      retriever: baseRetriever,
     });
   };
 
-  public ragChain = () => {
+  /**
+   * Retrieve relevant documents for a query, filtered by userId.
+   * Uses vector store directly when userId filtering is required (for use outside MultiQueryRetriever).
+   */
+  public retrieveForUser = async (query: string, userId: number) => {
+    if (!this.vectorStore) {
+      throw new Error("You must call initialize() first.");
+    }
+    const filter = { preFilter: { userId } };
+    const docs = await this.vectorStore.maxMarginalRelevanceSearch(query, {
+      k: 5,
+      fetchK: 10,
+      lambda: 0.5,
+      filter,
+    });
+    return docs;
+  };
+
+  /**
+   * Get clinical synthesis for a call summary, using only the given user's documents.
+   */
+  public getClinicalSynthesisForUser = async (
+    callSummary: string,
+    userId: number,
+  ): Promise<string> => {
+    if (!this.vectorStore) {
+      throw new Error("You must call initialize() first.");
+    }
+    const docs = await this.retrieveForUser(callSummary, userId);
+    const context = docs.map((d) => d.pageContent).join("\n\n");
+    const tmpl = `
+You are an expert clinical AI assistant. Your task is to help a doctor quickly understand if a patient has a history of similar medical issues based on their past records.
+
+Below is the summary of the patient's recent consultation (RECENT CALL SUMMARY). 
+You are also provided with relevant extracts from their past medical records (PAST MEDICAL REPORTS).
+
+Your goal is to cross-reference the current issue with their past records and provide a brief clinical synthesis for the doctor.
+
+CRITICAL RULES:
+1. ONLY use the information provided in the PAST MEDICAL REPORTS. Do not invent, assume, or pull in outside medical knowledge about the patient.
+2. If the past reports do not contain any information related or similar to the current issue, explicitly state: "No relevant past medical history found for this specific issue in the provided records."
+3. Highlight any previous occurrences of these symptoms, past diagnoses, or past treatments that are relevant to the current call.
+4. Keep your answer concise, objective, and formatted for a doctor's quick review. Do not attempt to diagnose the current issue.
+
+PAST MEDICAL REPORTS (CONTEXT):
+{context}
+
+RECENT CALL SUMMARY:
+{call_summary}
+
+CLINICAL SYNTHESIS FOR THE DOCTOR:
+`;
+    const prompt = ChatPromptTemplate.fromTemplate(tmpl);
+    const chain = prompt.pipe(this.llm).pipe(new StringOutputParser());
+    return chain.invoke({ context, call_summary: callSummary });
+  };
+
+  public ragChain = (userId?: number) => {
     const tmpl = `
 You are an expert clinical AI assistant. Your task is to help a doctor quickly understand if a patient has a history of similar medical issues based on their past records.
 
@@ -115,7 +180,7 @@ CLINICAL SYNTHESIS FOR THE DOCTOR:
       return docs.map((doc) => doc.pageContent).join("\n\n");
     };
 
-    const multiRetriever = this.getRetriever();
+    const multiRetriever = this.getRetriever(userId);
 
     const chain = RunnableSequence.from([
       {

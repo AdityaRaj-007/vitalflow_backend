@@ -12,8 +12,47 @@ import * as sarvam from "@livekit/agents-plugin-sarvam";
 import { BackgroundVoiceCancellation } from "@livekit/noise-cancellation-node";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { connectDB } from "../../../config/db.js";
+import { Doctor } from "../../../models/Doctor.js";
+import {
+  getRagPipelineInstance,
+  initializeRagPipeline,
+} from "../../../services/rag/ragpipeline.js";
 
 dotenv.config();
+
+const API_BASE = process.env.API_URL || "http://localhost:3000";
+
+// Canonical list of medical specializations used across the system.
+const SPECIALIZATIONS = [
+  "General Medicine",
+  "Internal Medicine",
+  "Cardiology",
+  "Dermatology",
+  "Endocrinology",
+  "Gastroenterology",
+  "Neurology",
+  "Orthopedic",
+  "Pediatrics",
+  "Psychiatry",
+  "Pulmonology",
+  "Ophthalmology",
+  "ENT",
+  "Gynecology",
+  "Urology",
+  "Dental",
+  "Oncology",
+  "Radiology",
+];
+
+const normalizeSpecialization = (value: string): string => {
+  if (!value) return "";
+  let v = value.toLowerCase().trim();
+  v = v.replace(/doctor|dr\.?|specialist/g, "").trim();
+  v = v.replace(/orthopaedic(s)?/g, "orthopedic");
+  if (v.endsWith("s")) v = v.slice(0, -1);
+  return v;
+};
 
 export default defineAgent({
   entry: async (ctx: JobContext) => {
@@ -21,68 +60,118 @@ export default defineAgent({
     console.log(`User connected to room: ${ctx.room.name}`);
     const remoteParticipant = await ctx.waitForParticipant();
 
+    await connectDB();
+    await initializeRagPipeline();
+
     const lookUpDoctor = llm.tool({
-      description: "Look up doctors based on user symptoms",
+      description:
+        "Look up doctors based on user symptoms and inferred specialization. The specialization must be one of: " +
+        SPECIALIZATIONS.join(", "),
       parameters: z.object({
-        symptoms: z.array(z.string()),
+        symptoms: z.array(z.string()).describe("The user's reported symptoms."),
+        specialization: z
+          .string()
+          .describe(
+            "The medical specialization best suited to treat these symptoms (e.g., 'orthopedics', 'cardiology', 'dermatology', 'general')."
+          ),
         time: z
           .string()
           .describe(
-            "The precise ISO 8601 timestamp for the requested appointment time (e.g., 2026-03-05T18:00:00+05:30). Calculate this based on the current system date.",
+            "The precise ISO 8601 timestamp for the requested appointment time (e.g., 2026-03-05T18:00:00-05:30). Calculate this based on the current system date in UTC assuming that the time will be in IST in input."
           ),
       }),
 
-      execute: async ({ symptoms, time }) => {
-        const doctors = [
-          {
-            id: 1,
-            name: "Dr. Jon Snow",
-            speciality: "Radiologist",
-            experience: 8,
-            availableAt: time,
-            location: "https://maps.google.com/?q=Sunrise+Health+Clinic",
-          },
-          {
-            id: 2,
-            name: "Dr. Arya Stark",
-            speciality: "Radiologist",
-            experience: 5,
-            availableAt: time,
-            location: "https://maps.google.com/?q=Sunrise+Health+Clinic",
-          },
-          {
-            id: 3,
-            name: "Dr. Arya Rogers",
-            speciality: "Orthopadic",
-            experience: 5,
-            availableAt: time,
-            location: "https://maps.google.com/?q=Sunrise+Health+Clinic",
-          },
-          {
-            id: 4,
-            name: "Dr. Amiya Kalo",
-            speciality: "Gynecologist",
-            experience: 5,
-            availableAt: time,
-            location: "https://maps.google.com/?q=Sunrise+Health+Clinic",
-          },
-          {
-            id: 5,
-            name: "Dr. Amiya Panda",
-            speciality: "Gynecologist",
-            experience: 5,
-            availableAt: time,
-            location: "https://maps.google.com/?q=Sunrise+Health+Clinic",
-          },
-          {
-            id: 6,
-            name: "Dr. Amiya Pradhan",
-            speciality: "Dentist",
-            experience: 5,
-            availableAt: time,
-            location: "https://maps.google.com/?q=Sunrise+Health+Clinic",
-          },
-        ];
+      execute: async ({ symptoms, specialization, time }) => {
+        const allDoctors = await Doctor.find()
+          .select("name specialization clinic_address slots")
+          .lean();
+
+        // The LLM has inferred the specialization. Normalize to match stored doctor specializations.
+        const targetSpeciality = normalizeSpecialization(specialization);
+
+        // Filter doctors based on the LLM's inferred specialization, fallback to general
+        const matchedBySpeciality = allDoctors.filter((d: any) => {
+          const specNorm = normalizeSpecialization(d.specialization || "");
+          return (
+            specNorm === targetSpeciality ||
+            specNorm.includes(targetSpeciality) ||
+            specNorm.includes("general medicine") ||
+            specNorm.includes("internal medicine")
+          );
+        });
+
+        // If no doctor has a relevant speciality and no general fallback exists
+        if (matchedBySpeciality.length === 0) {
+          const emptyPayload = JSON.stringify({
+            type: "DOCTOR_RESULTS",
+            payload: {
+              symptoms,
+              doctors: [],
+            },
+          });
+
+          const emptyBuffer = new TextEncoder().encode(emptyPayload);
+
+          await ctx.room.localParticipant?.publishData(emptyBuffer, {
+            reliable: true,
+            topic: "doctor-results",
+          });
+
+          return {
+            message: `I'm sorry, but we don't currently have any ${specialization} specialists or general practitioners available.`,
+          };
+        }
+
+        const requestedTime = new Date(time);
+        const SLOT_MATCH_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+
+        const doctorsWithAvailableSlot = matchedBySpeciality.filter((d: any) => {
+          // const slots = (d.slots || []) as any[];
+          // return slots.some((slot) => {
+          //   // if (slot.status !== "AVAILABLE" || !slot.startTime) return false;
+          //   const slotTime = new Date(slot.startTime);
+          //   const diff = Math.abs(slotTime.getTime() - requestedTime.getTime());
+          //   return diff < SLOT_MATCH_WINDOW_MS;
+          // });
+          const slots = (d.slots || []) as any[];
+
+          const hasConflict = slots.some((slot) => {
+            const slotTime = new Date(slot.startTime);
+            const diff = Math.abs(slotTime.getTime() - requestedTime.getTime());
+            return diff < SLOT_MATCH_WINDOW_MS;
+          });
+
+          return !hasConflict;
+        });
+
+        if (doctorsWithAvailableSlot.length === 0) {
+          const emptyPayload = JSON.stringify({
+            type: "DOCTOR_RESULTS",
+            payload: {
+              symptoms,
+              doctors: [],
+            },
+          });
+
+          const emptyBuffer = new TextEncoder().encode(emptyPayload);
+
+          await ctx.room.localParticipant?.publishData(emptyBuffer, {
+            reliable: true,
+            topic: "doctor-results",
+          });
+
+          return {
+            message: `I'm sorry, but we don't currently have any doctors with free slots at the time you've requested for this issue.`,
+          };
+        }
+
+        const doctors = doctorsWithAvailableSlot.map((d: any) => ({
+          id: d._id.toString(),
+          name: d.name,
+          speciality: d.specialization || "General",
+          availableAt: time,
+          location: d.clinic_address || "Clinic",
+        }));
 
         const payloadString = JSON.stringify({
           type: "DOCTOR_RESULTS",
@@ -100,7 +189,7 @@ export default defineAgent({
         });
 
         return {
-          message: `I found ${doctors.length} doctors available at ${time}. Please check your screen for details. This is list of available doctors: ${doctors}`,
+          message: `I found ${doctors.length} doctors available at ${time}. Please check your screen for details.`,
         };
       },
     });
@@ -114,13 +203,13 @@ export default defineAgent({
         time: z
           .string()
           .describe(
-            "The precise ISO 8601 timestamp for the confirmed appointment time.",
+            "The precise ISO 8601 timestamp for the confirmed appointment time."
           ),
         location: z.string(),
         callSummary: z
           .string()
           .describe(
-            "A concise summary of the patient's symptoms and reason for the visit.",
+            "A concise summary of the patient's symptoms and reason for the visit."
           ),
       }),
 
@@ -134,9 +223,27 @@ export default defineAgent({
         console.log(`Booking doctor ID: ${doctorId} at ${time}...`);
 
         const id = remoteParticipant.identity.split("-")[1];
+        const userId = Number(id);
+        let related_documents: string[] = [];
+        let history_summary = "";
+
+        try {
+          const ragInstance = getRagPipelineInstance();
+          const [docs, synthesis] = await Promise.all([
+            ragInstance.retrieveForUser(callSummary, userId),
+            ragInstance.getClinicalSynthesisForUser(callSummary, userId),
+          ]);
+          related_documents = docs
+            .map((d) => d.metadata?.url)
+            .filter((u): u is string => Boolean(u));
+          history_summary = synthesis;
+        } catch (ragErr) {
+          console.warn("RAG fetch failed, proceeding without docs:", ragErr);
+        }
+
         try {
           const response = await fetch(
-            `http://13.127.76.225/api/users/${id}/appointments`,
+            `${API_BASE}/api/users/${id}/appointments`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -145,8 +252,10 @@ export default defineAgent({
                 date: time,
                 call_summary: callSummary,
                 location,
+                related_documents,
+                history_summary,
               }),
-            },
+            }
           );
 
           const result = await response.json();
@@ -191,11 +300,12 @@ export default defineAgent({
 
         TOOL WORKFLOW:
         1. Gather info: Collect the patient's symptoms and preferred appointment time.
-        2. Search: Once you have the info, call the "lookUpDoctor" tool. 
-        3. Direct to Screen: After calling the tool, tell the user to select their preferred doctor from the list on their screen.
-        4. Summarize & Book: When the user selects or confirms a specific doctor, generate a concise call summary that explains exactly why the user is visiting and lists their specific symptoms. You MUST pass this summary into the "bookAppointment" tool to finalize the booking.
-        5. Confirm: Once the booking is successful, verbally confirm the appointment time with the user.
-     `,
+        2. Infer Specialization: Analyze the patient's symptoms and determine the most appropriate medical specialization (e.g., if they say "my chest hurts", infer "cardiology").
+        3. Search: Call the "lookUpDoctor" tool, passing the symptoms, the inferred specialization, and the requested time. 
+        4. Direct to Screen: After calling the tool, tell the user to select their preferred doctor from the list on their screen.
+        5. Summarize & Book: When the user selects or confirms a specific doctor, generate a concise call summary that explains exactly why the user is visiting and lists their specific symptoms. You MUST pass this summary into the "bookAppointment" tool to finalize the booking.
+        6. Confirm: Once the booking is successful, verbally confirm the appointment time with the user.
+      `,
       tools: {
         lookUpDoctor,
         bookAppointment,

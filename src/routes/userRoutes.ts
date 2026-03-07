@@ -17,10 +17,14 @@ import {
   updateUserDocument,
   getUserGoldenRecord,
   getUserMedicalHistory,
+  userLogin,
 } from "../controllers/userController.js";
 import { uploadDocumentMiddleware } from "../middlewares/upload.js";
 
 const userRouter = Router();
+
+// Auth
+userRouter.post("/users/login", userLogin);
 
 // CRUD for User collection
 userRouter.post("/users", createUser);

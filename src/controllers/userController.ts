@@ -4,6 +4,10 @@ import { uploadUserDocumentToS3 } from "../utils/s3Upload.js";
 import { detectTextFromS3 } from "../utils/awsTextract.js";
 import { s3BucketName } from "../config/s3.js";
 import { getRagPipelineInstance } from "../services/rag/ragpipeline.js";
+import {
+  linkAppointmentToDoctorSlot,
+  syncUserAppointmentStatusToDoctorSlot,
+} from "../services/appointment/appointmentLinkService.js";
 
 export const createUser = async (
   req: Request,
@@ -54,6 +58,31 @@ export const createUser = async (
         .status(409)
         .json({ message: "User with this email or id already exists" });
     }
+    next(error);
+  }
+};
+
+export const userLogin = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res
+        .status(400)
+        .json({ message: "Email and password are required" });
+    }
+    const user = await User.findOne({ email });
+    if (!user || user.password !== password) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+    return res.status(200).json({
+      id: user.id,
+      email: user.email,
+    });
+  } catch (error) {
     next(error);
   }
 };
@@ -324,6 +353,8 @@ export const addUserAppointment = async (
       doctorOrClinic,
       location,
       call_summary,
+      related_documents,
+      history_summary,
     } = req.body;
 
     const user = await User.findOne({ id: Number(id) });
@@ -338,6 +369,8 @@ export const addUserAppointment = async (
       doctorOrClinic,
       location,
       call_summary,
+      ...(related_documents?.length && { related_documents }),
+      ...(history_summary && { history_summary }),
     };
     if (appointmentDateTime) {
       newAppointment.appointmentDateTime = new Date(appointmentDateTime);
@@ -347,6 +380,27 @@ export const addUserAppointment = async (
 
     const createdAppointment =
       user.appointments_callsummary[user.appointments_callsummary.length - 1];
+    const appointmentObjId = (createdAppointment as any)._id;
+
+    if (doctorOrClinic && appointmentObjId) {
+      const appointmentDateTimeForLink = newAppointment.appointmentDateTime ?? newAppointment.date;
+      const linkResult = await linkAppointmentToDoctorSlot({
+        doctorNameOrId: doctorOrClinic,
+        appointmentDateTime: new Date(appointmentDateTimeForLink),
+        patientId: Number(id),
+        patientName: user.email || "Patient",
+        callSummary: call_summary ?? "",
+        userAppointmentId: appointmentObjId,
+        related_documents: related_documents,
+        history_summary: history_summary ,
+      });
+      if (linkResult) {
+        (createdAppointment as any).doctorId = linkResult.doctorId;
+        (createdAppointment as any).slotId = linkResult.slotId;
+        await user.save();
+      }
+    }
+
     return res.status(201).json(createdAppointment);
   } catch (error) {
     next(error);
@@ -417,7 +471,18 @@ export const updateUserAppointment = async (
       appointment.doctorOrClinic = doctorOrClinic;
     if (location !== undefined) appointment.location = location;
     if (call_summary !== undefined) appointment.call_summary = call_summary;
-    if (status !== undefined) appointment.status = status;
+    if (status !== undefined) {
+      appointment.status = status;
+      const doctorId = (appointment as any).doctorId;
+      const slotId = (appointment as any).slotId;
+      if (
+        (status === "confirmed" || status === "rejected") &&
+        doctorId &&
+        slotId
+      ) {
+        await syncUserAppointmentStatusToDoctorSlot(doctorId, slotId, status);
+      }
+    }
 
     await user.save();
 
