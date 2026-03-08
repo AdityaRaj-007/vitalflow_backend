@@ -7,8 +7,13 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "rm -rf dist && tsc && cpy \"src/**/*.md\" dist --parents",
     "start": "node dist/index.js",
-    "voiceagent": "tsx src/services/voice/voiceagent/voiceagent.ts dev",
-    "dev": "nodemon --watch src --ext ts --exec tsx src/index.ts"
+    "dev:voiceagent": "tsx src/services/voice/voiceagent/voiceagent.ts dev",
+    "dev": "nodemon --watch src --ext ts --exec tsx src/index.ts",
+    "start:agent": "node dist/services/voice/voiceagent/voiceagent.js start",
+    "voiceagent": "node dist/services/voice/voiceagent/voiceagent.js start",
+    "dev:backend": "nodemon --watch src --ext ts --exec tsx src/index.ts",
+    "dev:agent": "nodemon --watch src --ext ts --exec tsx src/services/voice/voiceagent/voiceagent.ts dev",
+    "download-files": "node dist/services/voice/voiceagent/voiceagent.js download-files"
   },
   "keywords": [],
   "author": "",
@@ -48,6 +53,7 @@
     "@livekit/agents-plugin-silero": "^1.0.48",
     "@livekit/noise-cancellation-node": "^0.1.9",
     "@types/mongoose": "^5.11.96",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "langchain": "^1.2.28",
     "livekit-server-sdk": "^2.15.0",
