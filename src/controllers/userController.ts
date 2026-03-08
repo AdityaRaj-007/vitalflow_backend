@@ -497,6 +497,7 @@ export const addUserAppointment = async (
     }
     user.appointments_callsummary.push(newAppointment);
     await user.save();
+    console.log("Created appointment in user database...");
 
     const createdAppointment =
       user.appointments_callsummary[user.appointments_callsummary.length - 1];
@@ -508,12 +509,13 @@ export const addUserAppointment = async (
         doctorNameOrId: doctorOrClinic,
         appointmentDateTime: new Date(appointmentDateTimeForLink),
         patientId: Number(id),
-        patientName: user.email || "Patient",
+        patientName: user.name || "Patient",
         callSummary: call_summary ?? "",
         userAppointmentId: appointmentObjId,
         related_documents: related_documents,
         history_summary: history_summary ,
       });
+      console.log("Created appointment in doctor database...", linkResult);
       if (linkResult) {
         (createdAppointment as any).doctorId = linkResult.doctorId;
         (createdAppointment as any).slotId = linkResult.slotId;
