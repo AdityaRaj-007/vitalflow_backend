@@ -8,7 +8,7 @@ import { AddChatToHistory, GetChatHistory } from "../utils/chatHistory.js";
 import type { ChatMessage } from "../types/types.js";
 import { getRagPipelineInstance } from "../services/rag/ragpipeline.js";
 import { User } from "../models/User.js";
-import { AccessToken } from "livekit-server-sdk";
+import { AccessToken, RoomAgentDispatch, RoomServiceClient } from "livekit-server-sdk";
 import type { ConversationHistory } from "../services/llm/llmthirdparty/amazonBedrock.js";
 import { linkAppointmentToDoctorSlot } from "../services/appointment/appointmentLinkService.js";
 
@@ -270,6 +270,24 @@ export const generateAccessToken = async (
       ttl: "15m",
     },
   );
+
+  const roomService = new RoomServiceClient(
+    process.env.LIVEKIT_URL!,
+    process.env.LIVEKIT_API_KEY!,
+    process.env.LIVEKIT_API_SECRET!,
+  );
+
+  try {
+    await roomService.createRoom({
+      name: roomName,
+      agents: [
+        new RoomAgentDispatch({ agentName: "my-agent" }),
+      ],
+    });
+  } catch (err) {
+    console.error("Failed to create room with agent dispatch:", err);
+    return res.status(500).json({ error: "Could not create room" });
+  }
 
   at.addGrant({
     roomJoin: true,
