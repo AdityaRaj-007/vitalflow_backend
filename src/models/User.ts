@@ -10,6 +10,34 @@ export interface DocumentUrl {
   updatedAt?: Date;
 }
 
+export interface InsuranceDocument {
+  _id?: Types.ObjectId;
+  url: string;
+  name: string;
+  type: string; // e.g. "Insurance Policy"
+  description?: string;
+  insuranceTotalAmount?: number;
+  insuranceValidFrom?: Date;
+  insuranceValidTo?: Date;
+  insurerName?: string;
+  policyNumber?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface MedicalBillDocument {
+  _id?: Types.ObjectId;
+  url: string;
+  name: string;
+  type: string; // e.g. "Medical Bill"
+  description?: string;
+  billAmount?: number;
+  billDate?: Date;
+  billProvider?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface AppointmentCallSummary {
   _id?: Types.ObjectId;
   date: Date;
@@ -33,6 +61,8 @@ export interface UserDocument extends Document {
   email: string;
   password: string;
   document_urls: DocumentUrl[];
+  insurance_documents: InsuranceDocument[];
+  medical_bills: MedicalBillDocument[];
   appointments_callsummary: AppointmentCallSummary[];
 }
 
@@ -42,6 +72,34 @@ const DocumentUrlSchema = new Schema<DocumentUrl>(
     name: { type: String, required: true },
     type: { type: String, default: "Other" },
     description: { type: String },
+  },
+  { timestamps: true },
+);
+
+const InsuranceDocumentSchema = new Schema<InsuranceDocument>(
+  {
+    url: { type: String, required: true },
+    name: { type: String, required: true },
+    type: { type: String, default: "Insurance Policy" },
+    description: { type: String },
+    insuranceTotalAmount: { type: Number },
+    insuranceValidFrom: { type: Date },
+    insuranceValidTo: { type: Date },
+    insurerName: { type: String },
+    policyNumber: { type: String },
+  },
+  { timestamps: true },
+);
+
+const MedicalBillDocumentSchema = new Schema<MedicalBillDocument>(
+  {
+    url: { type: String, required: true },
+    name: { type: String, required: true },
+    type: { type: String, default: "Medical Bill" },
+    description: { type: String },
+    billAmount: { type: Number },
+    billDate: { type: Date },
+    billProvider: { type: String },
   },
   { timestamps: true },
 );
@@ -71,6 +129,8 @@ const UserSchema = new Schema<UserDocument>(
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     document_urls: { type: [DocumentUrlSchema], default: [] },
+    insurance_documents: { type: [InsuranceDocumentSchema], default: [] },
+    medical_bills: { type: [MedicalBillDocumentSchema], default: [] },
     appointments_callsummary: { type: [AppointmentCallSummarySchema], default: [] },
   },
   { timestamps: true },
