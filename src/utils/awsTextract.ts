@@ -1,39 +1,110 @@
 import {
-  DetectDocumentTextCommand,
+  StartDocumentTextDetectionCommand,
+  GetDocumentTextDetectionCommand,
   type Block,
 } from "@aws-sdk/client-textract";
 import { textractClient } from "../config/awsTextract.js";
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function detectTextFromS3(bucketName: string, objectKey: string) {
-  const command = new DetectDocumentTextCommand({
-    Document: {
-      S3Object: {
-        Bucket: bucketName,
-        Name: objectKey,
-      },
-    },
-  });
-
   try {
-    const response = await textractClient.send(command);
+    /**
+     * 1️⃣ Start Textract job
+     */
+    const startCommand = new StartDocumentTextDetectionCommand({
+      DocumentLocation: {
+        S3Object: {
+          Bucket: bucketName,
+          Name: objectKey,
+        },
+      },
+    });
 
-    const blocks: Block[] | undefined = response.Blocks;
+    const startResponse = await textractClient.send(startCommand);
+    const jobId = startResponse.JobId;
 
-    if (blocks) {
-      console.log("Detected text lines: ");
+    if (!jobId) {
+      throw new Error("Failed to start Textract job.");
+    }
 
-      const lines = blocks
-        .filter((b) => b.BlockType === "LINE")
-        .map((b) => b.Text);
-      lines.forEach((line) => console.log(line));
+    console.log("Textract Job started:", jobId);
 
-      return lines.join(" ");
-    } else {
-      console.log("No text blocks found.");
+    /**
+     * 2️⃣ Poll job status
+     */
+    let jobStatus = "IN_PROGRESS";
+    let blocks: Block[] = [];
+
+    while (jobStatus === "IN_PROGRESS") {
+      await sleep(2000);
+
+      const result = await textractClient.send(
+        new GetDocumentTextDetectionCommand({
+          JobId: jobId,
+        })
+      );
+
+      jobStatus = result.JobStatus ?? "FAILED";
+
+      if (jobStatus === "SUCCEEDED") {
+        blocks = result.Blocks ?? [];
+
+        /**
+         * 3️⃣ Handle pagination for large multi-page PDFs
+         */
+        let nextToken = result.NextToken;
+
+        while (nextToken) {
+          const nextPage = await textractClient.send(
+            new GetDocumentTextDetectionCommand({
+              JobId: jobId,
+              NextToken: nextToken,
+            })
+          );
+
+          if (nextPage.Blocks) {
+            blocks.push(...nextPage.Blocks);
+          }
+
+          nextToken = nextPage.NextToken;
+        }
+      }
+
+      if (jobStatus === "FAILED") {
+        throw new Error("Textract job failed.");
+      }
+    }
+
+    /**
+     * 4️⃣ Extract lines
+     */
+    const lines = blocks
+      .filter((b) => b.BlockType === "LINE" && b.Text)
+      .map((b) => b.Text!.trim())
+      .filter(Boolean);
+
+    if (!lines.length) {
+      console.warn("Textract returned no text lines.");
       return "";
     }
+
+    console.log(`Textract extracted ${lines.length} lines`);
+
+    return lines.join("\n");
   } catch (err) {
-    console.error("Error detecting text fropm document: ", err);
+    const anyErr = err as any;
+
+    if (anyErr?.__type === "UnsupportedDocumentException") {
+      console.warn(
+        "Textract UnsupportedDocumentException: skipping text extraction for this document format."
+      );
+      return "";
+    }
+
+    console.error("Error detecting text from document:", err);
     throw err;
   }
 }

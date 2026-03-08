@@ -6,6 +6,7 @@ import router from "./routes/routes.js";
 import cors from "cors";
 import { connectDB } from "./config/db.js";
 import { initializeRagPipeline } from "./services/rag/ragpipeline.js";
+import { initializeInsuranceRagPipeline } from "./services/rag/insuranceRagPipeline.js";
 
 const allowedOrigins = [
   "http://localhost:3000",
@@ -41,6 +42,7 @@ const startServer = async () => {
   try {
     await connectDB();
     await initializeRagPipeline();
+    await initializeInsuranceRagPipeline();
     app.listen(config.port, () => {
       console.log(`Server running on port ${config.port}`);
     });

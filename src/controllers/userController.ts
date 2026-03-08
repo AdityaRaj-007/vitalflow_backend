@@ -4,6 +4,7 @@ import { uploadUserDocumentToS3 } from "../utils/s3Upload.js";
 import { detectTextFromS3 } from "../utils/awsTextract.js";
 import { s3BucketName } from "../config/s3.js";
 import { getRagPipelineInstance } from "../services/rag/ragpipeline.js";
+import { getInsuranceRagPipelineInstance } from "../services/rag/insuranceRagPipeline.js";
 import {
   linkAppointmentToDoctorSlot,
   syncUserAppointmentStatusToDoctorSlot,
@@ -165,7 +166,15 @@ export const getUserDocuments = async (
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    return res.status(200).json(user.document_urls);
+
+    // Combine general documents, insurance documents, and medical bills.
+    const allDocuments = [
+      ...user.document_urls,
+      ...user.insurance_documents,
+      ...user.medical_bills,
+    ];
+
+    return res.status(200).json(allDocuments);
   } catch (error) {
     next(error);
   }
@@ -178,7 +187,19 @@ export const addUserDocument = async (
 ) => {
   try {
     const { id } = req.params;
-    const { name, type, description } = req.body;
+    const {
+      name,
+      type,
+      description,
+      insuranceTotalAmount,
+      insuranceValidFrom,
+      insuranceValidTo,
+      insurerName,
+      policyNumber,
+      billAmount,
+      billDate,
+      billProvider,
+    } = req.body;
 
     const user = await User.findOne({ id: Number(id) });
     if (!user) {
@@ -198,21 +219,100 @@ export const addUserDocument = async (
       Number(id),
     );
 
-    // After successful upload, process the document content through Textract
-    // and ingest it into the RAG pipeline with rich metadata.
+    const documentName = name || req.file.originalname;
+
+    // Route insurance and medical bills into dedicated arrays.
+    if (type === "Insurance Policy") {
+      const insuranceDoc: any = {
+        url: s3Url,
+        name: documentName,
+        type,
+        description,
+      };
+      if (insuranceTotalAmount !== undefined && insuranceTotalAmount !== "") {
+        insuranceDoc.insuranceTotalAmount = Number(insuranceTotalAmount);
+      }
+      if (insuranceValidFrom !== undefined && insuranceValidFrom !== "") {
+        insuranceDoc.insuranceValidFrom = new Date(insuranceValidFrom);
+      }
+      if (insuranceValidTo !== undefined && insuranceValidTo !== "") {
+        insuranceDoc.insuranceValidTo = new Date(insuranceValidTo);
+      }
+      if (insurerName) {
+        insuranceDoc.insurerName = insurerName;
+      }
+      if (policyNumber) {
+        insuranceDoc.policyNumber = policyNumber;
+      }
+
+      user.insurance_documents.push(insuranceDoc);
+      await user.save();
+
+       // Ingest only insurance documents into the dedicated insurance RAG pipeline.
+      try {
+        const content = await detectTextFromS3(s3BucketName, objectKey);
+        const insuranceMetadata = {
+          userId: Number(id),
+          policyNumber: policyNumber || undefined,
+          name: documentName,
+          url: s3Url,
+          description,
+          type,
+        };
+        const insuranceRag = getInsuranceRagPipelineInstance();
+        // console.log("Insurance Content:", content);
+        // console.log("Insurance Metadata:", insuranceMetadata);
+        await insuranceRag.ingestInsuranceDocument(content, insuranceMetadata);
+      } catch (ingestErr) {
+        console.warn(
+          "Failed to ingest insurance document into insurance RAG pipeline:",
+          ingestErr,
+        );
+      }
+
+      const createdInsurance =
+        user.insurance_documents[user.insurance_documents.length - 1];
+      return res.status(201).json(createdInsurance);
+    }
+
+    if (type === "Medical Bill") {
+      const billDoc: any = {
+        url: s3Url,
+        name: documentName,
+        type,
+        description,
+      };
+
+      if (billAmount !== undefined && billAmount !== "") {
+        billDoc.billAmount = Number(billAmount);
+      }
+      if (billDate !== undefined && billDate !== "") {
+        billDoc.billDate = new Date(billDate);
+      }
+      if (billProvider) {
+        billDoc.billProvider = billProvider;
+      }
+
+      user.medical_bills.push(billDoc);
+      await user.save();
+      const createdBill =
+        user.medical_bills[user.medical_bills.length - 1];
+      return res.status(201).json(createdBill);
+    }
+
+    // For all other document types, continue ingesting into the RAG pipeline.
     const content = await detectTextFromS3(s3BucketName, objectKey);
     const metadata = {
       userId: Number(id),
-      description: description,
-      name: name,
+      description,
+      name,
       url: s3Url,
       objectKey,
+      type,
     };
 
     const ragInstance = getRagPipelineInstance();
     await ragInstance.ingestDocument(content, metadata);
-
-    const documentName = name || req.file.originalname;
 
     user.document_urls.push({
       url: s3Url,
