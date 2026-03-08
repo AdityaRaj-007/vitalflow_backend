@@ -58,6 +58,7 @@ export interface AppointmentCallSummary {
 
 export interface UserDocument extends Document {
   id: number;
+  name: string;
   email: string;
   password: string;
   document_urls: DocumentUrl[];
@@ -126,6 +127,7 @@ const AppointmentCallSummarySchema = new Schema<AppointmentCallSummary>({
 const UserSchema = new Schema<UserDocument>(
   {
     id: { type: Number, unique: true, required: true },
+    name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     document_urls: { type: [DocumentUrlSchema], default: [] },

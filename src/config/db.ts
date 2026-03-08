@@ -4,20 +4,37 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const mongoUri = process.env.MONGO_URI;
-
-if (!mongoUri) {
-  throw new Error("MONGO_URI environment variable is not defined");
+function getMongoUri(): string {
+  const uri = process.env.MONGO_URI;
+  if (!uri) {
+    throw new Error("MONGO_URI environment variable is not defined");
+  }
+  return uri;
 }
 
-export const vectorDBMongoClient = new MongoClient(mongoUri);
+let _vectorDBMongoClient: MongoClient | null = null;
+
+function getVectorDBMongoClient(): MongoClient {
+  if (!_vectorDBMongoClient) {
+    _vectorDBMongoClient = new MongoClient(getMongoUri());
+  }
+  return _vectorDBMongoClient;
+}
+
+/** Lazy proxy: only requires MONGO_URI when actually used (e.g. at agent runtime). Safe to import during Docker build (e.g. download-files). */
+export const vectorDBMongoClient = new Proxy({} as MongoClient, {
+  get(_, prop) {
+    return (getVectorDBMongoClient() as unknown as Record<string | symbol, unknown>)[prop];
+  },
+});
 
 export const connectDB = async (): Promise<void> => {
+  const mongoUri = getMongoUri();
   try {
     await mongoose.connect(mongoUri);
     console.log("Mongoose connected");
 
-    await vectorDBMongoClient.connect();
+    await getVectorDBMongoClient().connect();
     console.log("Vector MongoClient connected");
   } catch (error) {
     console.error("Error connecting to MongoDB", error);

@@ -9,6 +9,7 @@ import {
   linkAppointmentToDoctorSlot,
   syncUserAppointmentStatusToDoctorSlot,
 } from "../services/appointment/appointmentLinkService.js";
+import bcrypt from "bcryptjs";
 
 export const createUser = async (
   req: Request,
@@ -18,16 +19,17 @@ export const createUser = async (
   try {
     const {
       id,
+      name,
       email,
       password,
       document_urls = [],
       appointments_callsummary = [],
     } = req.body;
 
-    if (!email || !password) {
+    if (!name || !email || !password) {
       return res
         .status(400)
-        .json({ message: "Email and password are required" });
+        .json({ message: "Name, email and password are required" });
     }
 
     // Auto-generate a numeric id if not provided
@@ -41,13 +43,18 @@ export const createUser = async (
 
     console.log("Creating user with data:", {
       id: numericId,
+      name,
       email,
     });
 
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
     const user = await User.create({
       id: numericId,
+      name,
       email,
-      password,
+      password: hashedPassword,
       document_urls,
       appointments_callsummary,
     });
@@ -76,11 +83,17 @@ export const userLogin = async (
         .json({ message: "Email and password are required" });
     }
     const user = await User.findOne({ email });
-    if (!user || user.password !== password) {
+    if (!user) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+    
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
       return res.status(401).json({ message: "Invalid email or password" });
     }
     return res.status(200).json({
       id: user.id,
+      name: user.name,
       email: user.email,
     });
   } catch (error) {
@@ -125,7 +138,14 @@ export const updateUser = async (
 ) => {
   try {
     const { id } = req.params;
-    const updated = await User.findOneAndUpdate({ id: Number(id) }, req.body, {
+
+    const updateData = { ...req.body };
+    if (updateData.password) {
+      const salt = await bcrypt.genSalt(10);
+      updateData.password = await bcrypt.hash(updateData.password, salt);
+    }
+
+    const updated = await User.findOneAndUpdate({ id: Number(id) }, updateData, {
       new: true,
       runValidators: true,
     });
@@ -654,7 +674,7 @@ export const getUserGoldenRecord = async (
     );
 
     const result = {
-      patientName: user.email || "Patient",
+      patientName: user.name || "Patient",
       summary,
       riskFlags: [] as string[],
       medications: [] as string[],

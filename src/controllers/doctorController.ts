@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { Doctor, type IDoctorSlot } from "../models/Doctor.js";
 import { User } from "../models/User.js";
 import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
 
 export const createDoctor = async (
   req: Request,
@@ -26,10 +27,13 @@ export const createDoctor = async (
       });
     }
 
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
     const doctor = await Doctor.create({
       name,
       email,
-      password,
+      password: hashedPassword,
       specialization,
       clinic_address,
       phone: phone ?? "",
@@ -63,7 +67,12 @@ export const doctorLogin = async (
       return res.status(401).json({ message: "Invalid email or password" });
     }
     const fullDoctor = await Doctor.findOne({ email });
-    if (!fullDoctor || fullDoctor.password !== password) {
+    if (!fullDoctor) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+    
+    const isMatch = await bcrypt.compare(password, fullDoctor.password);
+    if (!isMatch) {
       return res.status(401).json({ message: "Invalid email or password" });
     }
     return res.status(200).json({
@@ -120,7 +129,14 @@ export const updateDoctor = async (
     if (!mongoose.Types.ObjectId.isValid(Number(id))) {
       return res.status(400).json({ message: "Invalid doctor id" });
     }
-    const updated = await Doctor.findByIdAndUpdate(id, req.body, {
+
+    const updateData = { ...req.body };
+    if (updateData.password) {
+      const salt = await bcrypt.genSalt(10);
+      updateData.password = await bcrypt.hash(updateData.password, salt);
+    }
+
+    const updated = await Doctor.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
     });

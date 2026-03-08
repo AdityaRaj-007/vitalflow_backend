@@ -21,9 +21,17 @@ import {
 
 dotenv.config();
 
-const API_BASE = process.env.API_URL || "http://localhost:3000";
+const API_BASE = "http://ec2-13-127-76-225.ap-south-1.compute.amazonaws.com";
+if (!process.env.LIVEKIT_URL || !process.env.LIVEKIT_API_KEY || !process.env.LIVEKIT_API_SECRET) {
+  console.error(
+    "[VoiceAgent] Missing LIVEKIT_URL, LIVEKIT_API_KEY, or LIVEKIT_API_SECRET. Agent will not connect."
+  );
+}
+console.log(
+  `[VoiceAgent] LIVEKIT_URL=${process.env.LIVEKIT_URL ?? "(not set)"} API_BASE=${API_BASE}`
+);
 
-// Canonical list of medical specializations used across the system.
+
 const SPECIALIZATIONS = [
   "General Medicine",
   "Internal Medicine",
@@ -340,4 +348,4 @@ export default defineAgent({
   },
 });
 
-cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url) }));
+cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url), production: true, agentName: "my-agent" }));
