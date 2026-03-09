@@ -32,13 +32,23 @@ export const getLLMResponseController = async (
 
     // Collect URLs of relevant documents so the UI/agent
     // can surface specific reports if requested.
-    const relatedDocuments = Array.from(
-      new Set(
-        (docs || [])
-          .map((d: any) => d.metadata?.url)
-          .filter((u: unknown): u is string => typeof u === "string"),
-      ),
-    );
+    //
+    // A single PDF is stored as many vector chunks in MongoDB, all sharing the
+    // same S3 objectKey. To avoid showing the same document N times (once per
+    // chunk), we deduplicate by objectKey first and only keep one URL per
+    // physical document.
+    const docUrlMap = new Map<string, string>();
+    for (const d of docs || []) {
+      const url = (d as any).metadata?.url as string | undefined;
+      if (!url || typeof url !== "string") continue;
+      const objectKey = (d as any).metadata?.objectKey as string | undefined;
+      const key = objectKey && typeof objectKey === "string" ? objectKey : url;
+      if (!docUrlMap.has(key)) {
+        docUrlMap.set(key, url);
+      }
+    }
+    // Optionally limit to the top few unique documents so the UI isn't flooded
+    const relatedDocuments = Array.from(docUrlMap.values()).slice(0, 5);
 
     const llmresponse = await LLMResponse(inputText, sessionId, context);
     console.log("llm response is", llmresponse.reply);
@@ -159,6 +169,8 @@ export const getLLMResponseController = async (
               patientName: user.email || "Patient",
               callSummary,
               userAppointmentId: appointmentObjId,
+              related_documents: relatedDocuments,
+              history_summary: historySummary,
             });
             if (linkResult) {
               (newAppointment as any).doctorId = linkResult.doctorId;
