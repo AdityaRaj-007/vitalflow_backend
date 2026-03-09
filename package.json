@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "rm -rf dist && tsc && cpy \"src/**/*.md\" dist --parents",
+    "build": "tsc && cpy \"src/**/*.md\" dist --parents",
     "start": "node dist/index.js",
     "dev:voiceagent": "tsx src/services/voice/voiceagent/voiceagent.ts dev",
     "dev": "nodemon --watch src --ext ts --exec tsx src/index.ts",
@@ -47,6 +47,7 @@
     "@langchain/openai": "^1.2.11",
     "@langchain/textsplitters": "^1.0.1",
     "@livekit/agents": "^1.0.48",
+    "@livekit/agents-plugin-google": "^1.0.48",
     "@livekit/agents-plugin-livekit": "^1.0.48",
     "@livekit/agents-plugin-openai": "^1.0.48",
     "@livekit/agents-plugin-sarvam": "^1.0.48",
